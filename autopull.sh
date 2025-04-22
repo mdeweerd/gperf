@@ -32,7 +32,8 @@ for file in build-aux/install-sh build-aux/mkinstalldirs \
   if test -n "$GNULIB_TOOL"; then
     $GNULIB_TOOL --copy-file $file $file
   else
-    wget -q --timeout=5 -O $file.tmp "${GNULIB_REPO_URL}$file" \
+    if [ -r "$file" ] ; then continue ; fi
+    wget -q --timeout=15 -O $file.tmp "${GNULIB_REPO_URL}$file" \
       && mv $file.tmp $file
   fi
 done
