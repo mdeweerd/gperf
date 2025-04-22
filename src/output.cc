@@ -22,6 +22,8 @@
 #include "output.h"
 
 #include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
 #include <string.h> /* declares strncpy(), strchr() */
 #include <ctype.h>  /* declares isprint() */
 #include <assert.h> /* defines assert() */
@@ -85,6 +87,75 @@ smallest_integral_type (int min, int max)
     if (min >= SCHAR_MIN && max <= SCHAR_MAX) return "signed char";
   if (min >= SHRT_MIN && max <= SHRT_MAX) return "short";
   return "int";
+}
+
+static unsigned int output_lineno = 1; //!< Count line number as determined in printf_count & fwrite_count
+
+static int printf_count(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    // Initial buffer size
+    size_t buffer_size = 2048;
+    char *buffer = (char *)malloc(buffer_size);
+    if (!buffer) {
+        // Handle memory allocation failure
+        va_end(args);
+        return -1;
+    }
+
+    int result;
+    do {
+        // Try to format the string into the buffer
+        result = vsnprintf(buffer, buffer_size, format, args);
+
+        // If the buffer was too small, reallocate and retry
+        if (result >= (int)buffer_size) {
+            buffer_size *= 2;
+            buffer = (char *)realloc(buffer, buffer_size);
+            if (!buffer) {
+                // Handle memory allocation failure
+                va_end(args);
+                return -1;
+            }
+        }
+    } while (result >= (int)buffer_size);
+
+    // Count the number of newline characters in the buffer
+    const char *p = buffer;
+    while (*p) {
+        if (*p == '\n') {
+            output_lineno++;
+        }
+        p++;
+    }
+
+    // Print the buffer using printf
+    result = printf("%s", buffer);
+
+    // Free the allocated buffer
+    free(buffer);
+
+    va_end(args);
+    return result;
+}
+
+size_t fwrite_count(const void *ptr, size_t size, size_t nmemb, FILE *stream) {
+    // Calculate the total number of bytes to write
+    size_t total_bytes = size * nmemb;
+
+    // Write the data to the file
+    size_t bytes_written = fwrite(ptr, size, nmemb, stream);
+
+    // Count the number of newline characters in the buffer
+    const char *p = (const char *)ptr;
+    for (size_t i = 0; i < bytes_written; i++) {
+        if (p[i] == '\n') {
+            output_lineno++;
+        }
+    }
+
+    return bytes_written;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -190,12 +261,12 @@ struct Output_Defines : public Output_Constants
 
 void Output_Defines::output_start ()
 {
-  printf ("\n");
+  printf_count ("\n");
 }
 
 void Output_Defines::output_item (const char *name, int value)
 {
-  printf ("#define %s %d\n", name, value);
+  printf_count ("#define %s %d\n", name, value);
 }
 
 void Output_Defines::output_end ()
@@ -219,7 +290,7 @@ private:
 
 void Output_Enum::output_start ()
 {
-  printf ("%senum\n"
+  printf_count ("%senum\n"
           "%s  {\n",
           _indentation, _indentation);
   _pending_comma = false;
@@ -228,16 +299,16 @@ void Output_Enum::output_start ()
 void Output_Enum::output_item (const char *name, int value)
 {
   if (_pending_comma)
-    printf (",\n");
-  printf ("%s    %s = %d", _indentation, name, value);
+    printf_count (",\n");
+  printf_count ("%s    %s = %d", _indentation, name, value);
   _pending_comma = true;
 }
 
 void Output_Enum::output_end ()
 {
   if (_pending_comma)
-    printf ("\n");
-  printf ("%s  };\n\n", _indentation);
+    printf_count ("\n");
+  printf_count ("%s  };\n\n", _indentation);
 }
 
 /* Outputs a constant in the given style.  */
@@ -286,7 +357,7 @@ output_upperlower_table ()
 {
   unsigned int c;
 
-  printf ("#ifndef GPERF_DOWNCASE\n"
+  printf_count ("#ifndef GPERF_DOWNCASE\n"
           "#define GPERF_DOWNCASE 1\n"
           "static %sunsigned char gperf_downcase[256] =\n"
           "  {",
@@ -294,12 +365,12 @@ output_upperlower_table ()
   for (c = 0; c < 256; c++)
     {
       if ((c % 15) == 0)
-        printf ("\n   ");
-      printf (" %3d", c >= 'A' && c <= 'Z' ? c + 'a' - 'A' : c);
+        printf_count ("\n   ");
+      printf_count (" %3d", c >= 'A' && c <= 'Z' ? c + 'a' - 'A' : c);
       if (c < 255)
-        printf (",");
+        printf_count (",");
     }
-  printf ("\n"
+  printf_count ("\n"
           "  };\n"
           "#endif\n\n");
 }
@@ -311,11 +382,11 @@ output_upperlower_table ()
 static void
 output_upperlower_strcmp ()
 {
-  printf ("#ifndef GPERF_CASE_STRCMP\n"
+  printf_count ("#ifndef GPERF_CASE_STRCMP\n"
           "#define GPERF_CASE_STRCMP 1\n"
           "static int\n"
           "gperf_case_strcmp ");
-  printf (option[KRC] ?
+  printf_count (option[KRC] ?
                "(s1, s2)\n"
           "     %schar *s1;\n"
           "     %schar *s2;\n" :
@@ -328,7 +399,7 @@ output_upperlower_strcmp ()
           "",
           register_scs, register_scs);
   #if USE_DOWNCASE_TABLE
-  printf ("{\n"
+  printf_count ("{\n"
           "  for (;;)\n"
           "    {\n"
           "      unsigned char c1 = gperf_downcase[(unsigned char)*s1++];\n"
@@ -339,7 +410,7 @@ output_upperlower_strcmp ()
           "    }\n"
           "}\n");
   #else
-  printf ("{\n"
+  printf_count ("{\n"
           "  for (;;)\n"
           "    {\n"
           "      unsigned char c1 = *s1++;\n"
@@ -354,7 +425,7 @@ output_upperlower_strcmp ()
           "    }\n"
           "}\n");
   #endif
-  printf ("#endif\n\n");
+  printf_count ("#endif\n\n");
 }
 
 /* Output gperf's ASCII-case insensitive strncmp replacement.  */
@@ -362,11 +433,11 @@ output_upperlower_strcmp ()
 static void
 output_upperlower_strncmp ()
 {
-  printf ("#ifndef GPERF_CASE_STRNCMP\n"
+  printf_count ("#ifndef GPERF_CASE_STRNCMP\n"
           "#define GPERF_CASE_STRNCMP 1\n"
           "static int\n"
           "gperf_case_strncmp ");
-  printf (option[KRC] ?
+  printf_count (option[KRC] ?
                "(s1, s2, n)\n"
           "     %schar *s1;\n"
           "     %schar *s2;\n"
@@ -381,7 +452,7 @@ output_upperlower_strncmp ()
           "",
           register_scs, register_scs, register_scs);
   #if USE_DOWNCASE_TABLE
-  printf ("{\n"
+  printf_count ("{\n"
           "  for (; n > 0;)\n"
           "    {\n"
           "      unsigned char c1 = gperf_downcase[(unsigned char)*s1++];\n"
@@ -396,7 +467,7 @@ output_upperlower_strncmp ()
           "  return 0;\n"
           "}\n");
   #else
-  printf ("{\n"
+  printf_count ("{\n"
           "  for (; n > 0;)\n"
           "    {\n"
           "      unsigned char c1 = *s1++;\n"
@@ -415,7 +486,7 @@ output_upperlower_strncmp ()
           "  return 0;\n"
           "}\n");
   #endif
-  printf ("#endif\n\n");
+  printf_count ("#endif\n\n");
 }
 
 /* Output gperf's ASCII-case insensitive memcmp replacement.  */
@@ -423,11 +494,11 @@ output_upperlower_strncmp ()
 static void
 output_upperlower_memcmp ()
 {
-  printf ("#ifndef GPERF_CASE_MEMCMP\n"
+  printf_count ("#ifndef GPERF_CASE_MEMCMP\n"
           "#define GPERF_CASE_MEMCMP 1\n"
           "static int\n"
           "gperf_case_memcmp ");
-  printf (option[KRC] ?
+  printf_count (option[KRC] ?
                "(s1, s2, n)\n"
           "     %schar *s1;\n"
           "     %schar *s2;\n"
@@ -442,7 +513,7 @@ output_upperlower_memcmp ()
           "",
           register_scs, register_scs, register_scs);
   #if USE_DOWNCASE_TABLE
-  printf ("{\n"
+  printf_count ("{\n"
           "  for (; n > 0;)\n"
           "    {\n"
           "      unsigned char c1 = gperf_downcase[(unsigned char)*s1++];\n"
@@ -457,7 +528,7 @@ output_upperlower_memcmp ()
           "  return 0;\n"
           "}\n");
   #else
-  printf ("{\n"
+  printf_count ("{\n"
           "  for (; n > 0;)\n"
           "    {\n"
           "      unsigned char c1 = *s1++;\n"
@@ -476,7 +547,7 @@ output_upperlower_memcmp ()
           "  return 0;\n"
           "}\n");
   #endif
-  printf ("#endif\n\n");
+  printf_count ("#endif\n\n");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -522,9 +593,29 @@ output_line_directive (unsigned int lineno)
   const char *file_name = option.get_input_file_name ();
   if (file_name != NULL)
     {
-      printf ("#line %u ", lineno);
+      printf_count ("#line %u ", lineno);
       output_string (file_name, strlen (file_name));
-      printf ("\n");
+      printf_count ("\n");
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+
+/* Outputs a #line directive for generated code.  */
+
+static void
+output_generated_line_directive ()
+{
+  const char *file_name = option.get_output_file_name ();
+  if (file_name != NULL)
+    {
+      printf_count ("#line %u ", output_lineno);
+      output_string (file_name, strlen (file_name));
+      printf_count ("\n");
+    }
+  else
+    {
+      printf_count ("/* #line %u \"Generated by gperf\" */\n", output_lineno);
     }
 }
 
@@ -536,12 +627,12 @@ output_line_directive (unsigned int lineno)
 static void
 output_const_type (const char *const_string, const char *type_string)
 {
-  if (type_string[strlen(type_string)-1] == '*')
+  if (type_string[strlen(type_string) - 1] == '*')
     /* For pointer types, put the 'const' after the type.  */
-    printf ("%s %s", type_string, const_string);
+    printf_count ("%s %s", type_string, const_string);
   else
     /* For scalar or struct types, put the 'const' before the type.  */
-    printf ("%s%s ", const_string, type_string);
+    printf_count ("%s%s ", const_string, type_string);
 }
 
 /* ----------------------- Output_Expr and subclasses ----------------------- */
@@ -568,7 +659,7 @@ private:
 
 void Output_Expr1::output_expr () const
 {
-  printf ("%s", _p1);
+  printf_count ("%s", _p1);
 }
 
 #if 0 /* unused */
@@ -589,7 +680,7 @@ private:
 
 void Output_Expr2::output_expr () const
 {
-  printf ("%s%s", _p1, _p2);
+  printf_count ("%s%s", _p1, _p2);
 }
 
 #endif
@@ -625,19 +716,19 @@ bool Output_Compare::output_firstchar_comparison (const Output_Expr& expr1,
   if (option[UPPERLOWER])
     {
       /* Incomplete comparison, just for speedup.  */
-      printf ("(((unsigned char)*");
+      printf_count ("(((unsigned char)*");
       expr1.output_expr ();
-      printf (" ^ (unsigned char)*");
+      printf_count (" ^ (unsigned char)*");
       expr2.output_expr ();
-      printf (") & ~32) == 0");
+      printf_count (") & ~32) == 0");
       return false;
     }
   else
     {
       /* Complete comparison.  */
-      printf ("*");
+      printf_count ("*");
       expr1.output_expr ();
-      printf (" == *");
+      printf_count (" == *");
       expr2.output_expr ();
       return true;
     }
@@ -657,24 +748,24 @@ void Output_Compare_Strcmp::output_comparison (const Output_Expr& expr1,
                                                const Output_Expr& expr2) const
 {
   bool firstchar_done = output_firstchar_comparison (expr1, expr2);
-  printf (" && !");
+  printf_count (" && !");
   if (option[UPPERLOWER])
-    printf ("gperf_case_");
-  printf ("strcmp (");
+    printf_count ("gperf_case_");
+  printf_count ("strcmp (");
   if (firstchar_done)
     {
       expr1.output_expr ();
-      printf (" + 1, ");
+      printf_count (" + 1, ");
       expr2.output_expr ();
-      printf (" + 1");
+      printf_count (" + 1");
     }
   else
     {
       expr1.output_expr ();
-      printf (", ");
+      printf_count (", ");
       expr2.output_expr ();
     }
-  printf (")");
+  printf_count (")");
 }
 
 /* This class outputs a comparison using strncmp.
@@ -693,27 +784,27 @@ void Output_Compare_Strncmp::output_comparison (const Output_Expr& expr1,
                                                 const Output_Expr& expr2) const
 {
   bool firstchar_done = output_firstchar_comparison (expr1, expr2);
-  printf (" && !");
+  printf_count (" && !");
   if (option[UPPERLOWER])
-    printf ("gperf_case_");
-  printf ("strncmp (");
+    printf_count ("gperf_case_");
+  printf_count ("strncmp (");
   if (firstchar_done)
     {
       expr1.output_expr ();
-      printf (" + 1, ");
+      printf_count (" + 1, ");
       expr2.output_expr ();
-      printf (" + 1, len - 1");
+      printf_count (" + 1, len - 1");
     }
   else
     {
       expr1.output_expr ();
-      printf (", ");
+      printf_count (", ");
       expr2.output_expr ();
-      printf (", len");
+      printf_count (", len");
     }
-  printf (") && ");
+  printf_count (") && ");
   expr2.output_expr ();
-  printf ("[len] == '\\0'");
+  printf_count ("[len] == '\\0'");
 }
 
 /* This class outputs a comparison using memcmp.
@@ -733,25 +824,25 @@ void Output_Compare_Memcmp::output_comparison (const Output_Expr& expr1,
                                                const Output_Expr& expr2) const
 {
   bool firstchar_done = output_firstchar_comparison (expr1, expr2);
-  printf (" && !");
+  printf_count (" && !");
   if (option[UPPERLOWER])
-    printf ("gperf_case_");
-  printf ("memcmp (");
+    printf_count ("gperf_case_");
+  printf_count ("memcmp (");
   if (firstchar_done)
     {
       expr1.output_expr ();
-      printf (" + 1, ");
+      printf_count (" + 1, ");
       expr2.output_expr ();
-      printf (" + 1, len - 1");
+      printf_count (" + 1, len - 1");
     }
   else
     {
       expr1.output_expr ();
-      printf (", ");
+      printf_count (", ");
       expr2.output_expr ();
-      printf (", len");
+      printf_count (", len");
     }
-  printf (")");
+  printf_count (")");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -762,12 +853,12 @@ void
 Output::output_asso_values_index (int pos) const
 {
   if (pos == Positions::LASTCHAR)
-    printf ("str[len - 1]");
+    printf_count ("str[len - 1]");
   else
     {
-      printf ("str[%d]", pos);
+      printf_count ("str[%d]", pos);
       if (_alpha_inc[pos])
-        printf ("+%u", _alpha_inc[pos]);
+        printf_count ("+%u", _alpha_inc[pos]);
     }
 }
 
@@ -776,23 +867,23 @@ Output::output_asso_values_index (int pos) const
 void
 Output::output_asso_values_ref (int pos) const
 {
-  printf ("asso_values[");
+  printf_count ("asso_values[");
   /* Always cast to unsigned char.  This is necessary when the alpha_inc
      is nonzero, and also avoids a gcc warning "subscript has type 'char'".  */
   if (option[CPLUSPLUS])
     {
       /* In C++, a C style cast may lead to a 'warning: use of old-style cast'.
          Therefore prefer the C++ style cast syntax.  */
-      printf ("static_cast<unsigned char>(");
+      printf_count ("static_cast<unsigned char>(");
       output_asso_values_index (pos);
-      printf (")");
+      printf_count (")");
     }
   else
     {
-      printf ("(unsigned char)");
+      printf_count ("(unsigned char)");
       output_asso_values_index (pos);
     }
-  printf ("]");
+  printf_count ("]");
 }
 
 /* Generates C code for the hash function that returns the
@@ -805,9 +896,9 @@ Output::output_hash_function () const
 {
   /* Output the function's head.  */
   if (option[CPLUSPLUS])
-    printf ("inline ");
+    printf_count ("inline ");
   else if (option[KRC] | option[C] | option[ANSIC])
-    printf ("#ifdef __GNUC__\n"
+    printf_count ("#ifdef __GNUC__\n"
             "__inline\n"
             "#else\n"
             "#ifdef __cplusplus\n"
@@ -825,18 +916,18 @@ Output::output_hash_function () const
               || _key_positions[_key_positions.get_size() - 1] == Positions::LASTCHAR)));
   if (!uses_str || !uses_len)
     /* Pacify lint.  */
-    printf ("/*ARGSUSED*/\n");
+    printf_count ("/*ARGSUSED*/\n");
 
   if (option[KRC] | option[C] | option[ANSIC])
-    printf ("static ");
-  printf ("unsigned int\n");
+    printf_count ("static ");
+  printf_count ("unsigned int\n");
   if (option[CPLUSPLUS])
-    printf ("%s::", option.get_class_name ());
-  printf ("%s ", option.get_hash_name ());
+    printf_count ("%s::", option.get_class_name ());
+  printf_count ("%s ", option.get_hash_name ());
   /* We better not use [[__maybe_unused__]] or __attribute__ ((__unused__))
      because support for these syntaxes in the compilers is constantly
      changing.  */
-  printf (option[KRC] ?
+  printf_count (option[KRC] ?
                  "(str, len)\n"
             "     %schar *str;\n"
             "     %ssize_t len;\n" :
@@ -853,14 +944,14 @@ Output::output_hash_function () const
      that  min_key_len <= len <= max_key_len.  */
 
   /* Output the function's body.  */
-  printf ("{\n");
+  printf_count ("{\n");
 
   /* First the asso_values array.  */
   if (_key_positions.get_size() > 0)
     {
       /* The values in the asso_values array are all unsigned integers
          <= MAX_HASH_VALUE + 1.  */
-      printf ("  static %s%s asso_values[] =\n"
+      printf_count ("  static %s%s asso_values[] =\n"
               "    {",
               const_readonly_array,
               smallest_integral_type (_max_hash_value + 1));
@@ -875,29 +966,29 @@ Output::output_hash_function () const
       for (unsigned int count = 0; count < _alpha_size; count++)
         {
           if (count > 0)
-            printf (",");
+            printf_count (",");
           if ((count % columns) == 0)
-            printf ("\n     ");
-          printf ("%*d", field_width, _asso_values[count]);
+            printf_count ("\n     ");
+          printf_count ("%*d", field_width, _asso_values[count]);
         }
 
-      printf ("\n"
+      printf_count ("\n"
               "    };\n");
     }
 
   if (!uses_str)
     /* The function does not use the 'str' argument.
        Silence "gcc -Wunused-parameter".  */
-    printf ("  (void) str;\n");
+    printf_count ("  (void) str;\n");
   if (!uses_len)
     /* The function does not use the 'len' argument.
        Silence "gcc -Wunused-parameter".  */
-    printf ("  (void) len;\n");
+    printf_count ("  (void) len;\n");
 
   if (_key_positions.get_size() == 0)
     {
       /* Trivial case: No key positions at all.  */
-      printf ("  return %s;\n",
+      printf_count ("  return %s;\n",
               _hash_includes_len ? "len" : "0");
     }
   else
@@ -918,7 +1009,7 @@ Output::output_hash_function () const
              are added as 'int's even though the asso_values array may
              contain 'unsigned char's or 'unsigned short's.  */
 
-          printf ("  return %s",
+          printf_count ("  return %s",
                   _hash_includes_len ? "len + " : "");
 
           if (_key_positions.get_size() == 2
@@ -927,7 +1018,7 @@ Output::output_hash_function () const
             /* Optimize special case of "-k 1,$".  */
             {
               output_asso_values_ref (Positions::LASTCHAR);
-              printf (" + ");
+              printf_count (" + ");
               output_asso_values_ref (0);
             }
           else
@@ -936,7 +1027,7 @@ Output::output_hash_function () const
                 {
                   output_asso_values_ref (key_pos);
                   if ((key_pos = iter.next ()) != PositionIterator::EOS)
-                    printf (" + ");
+                    printf_count (" + ");
                   else
                     break;
                 }
@@ -945,7 +1036,7 @@ Output::output_hash_function () const
                 output_asso_values_ref (Positions::LASTCHAR);
             }
 
-          printf (";\n");
+          printf_count (";\n");
         }
       else
         {
@@ -961,7 +1052,7 @@ Output::output_hash_function () const
             "      /*FALLTHROUGH*/\n";
           /* It doesn't really matter whether hval is an 'int' or
              'unsigned int', but 'unsigned int' gives fewer warnings.  */
-          printf ("  %sunsigned int hval = %s;\n\n"
+          printf_count ("  %sunsigned int hval = %s;\n\n"
                   "  switch (%s)\n"
                   "    {\n"
                   "      default:\n",
@@ -978,36 +1069,36 @@ Output::output_hash_function () const
               do
                 {
                   if (i > key_pos)
-                    printf ("%s", fallthrough_marker);
+                    printf_count ("%s", fallthrough_marker);
                   for ( ; i > key_pos; i--)
-                    printf ("      case %d:\n", i);
+                    printf_count ("      case %d:\n", i);
 
-                  printf ("        hval += ");
+                  printf_count ("        hval += ");
                   output_asso_values_ref (key_pos);
-                  printf (";\n");
+                  printf_count (";\n");
 
                   key_pos = iter.next ();
                 }
               while (key_pos != PositionIterator::EOS && key_pos != Positions::LASTCHAR);
 
               if (i >= _min_key_len)
-                printf ("%s", fallthrough_marker);
+                printf_count ("%s", fallthrough_marker);
               for ( ; i >= _min_key_len; i--)
-                printf ("      case %d:\n", i);
+                printf_count ("      case %d:\n", i);
             }
 
-          printf ("        break;\n"
+          printf_count ("        break;\n"
                   "    }\n"
                   "  return hval");
           if (key_pos == Positions::LASTCHAR)
             {
-              printf (" + ");
+              printf_count (" + ");
               output_asso_values_ref (Positions::LASTCHAR);
             }
-          printf (";\n");
+          printf_count (";\n");
         }
     }
-  printf ("}\n\n");
+  printf_count ("}\n\n");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1022,7 +1113,7 @@ Output::output_keylength_table () const
   const int columns = 14;
   const char * const indent = option[GLOBAL] ? "" : "  ";
 
-  printf ("%sstatic %s%s %s[] =\n"
+  printf_count ("%sstatic %s%s %s[] =\n"
           "%s  {",
           indent, const_readonly_array,
           smallest_integral_type (_max_key_len),
@@ -1051,35 +1142,35 @@ Output::output_keylength_table () const
           for ( ; index < keyword->_hash_value; index++)
             {
               if (index > 0)
-                printf (",");
+                printf_count (",");
               if ((column++ % columns) == 0)
-                printf ("\n%s   ", indent);
-              printf ("%3d", 0);
+                printf_count ("\n%s   ", indent);
+              printf_count ("%3d", 0);
             }
         }
 
       if (index > 0)
-        printf (",");
+        printf_count (",");
       if ((column++ % columns) == 0)
-        printf("\n%s   ", indent);
-      printf ("%3d", keyword->_allchars_length);
+        printf_count("\n%s   ", indent);
+      printf_count ("%3d", keyword->_allchars_length);
       index++;
 
       /* Deal with duplicates specially.  */
       if (keyword->_duplicate_link) // implies option[DUP]
         for (KeywordExt *links = keyword->_duplicate_link; links; links = links->_duplicate_link)
           {
-            printf (",");
+            printf_count (",");
             if ((column++ % columns) == 0)
-              printf("\n%s   ", indent);
-            printf ("%3d", links->_allchars_length);
+              printf_count("\n%s   ", indent);
+            printf_count ("%3d", links->_allchars_length);
             index++;
           }
     }
 
-  printf ("\n%s  };\n", indent);
+  printf_count ("\n%s  };\n", indent);
   if (option[GLOBAL])
-    printf ("\n");
+    printf_count ("\n");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1094,7 +1185,7 @@ Output::output_string_pool () const
   int index;
   KeywordExt_List *temp;
 
-  printf ("%sstruct %s_t\n"
+  printf_count ("%sstruct %s_t\n"
           "%s  {\n",
           indent, option.get_stringpool_name (), indent);
   for (temp = _head, index = 0; temp; temp = temp->rest())
@@ -1110,10 +1201,10 @@ Output::output_string_pool () const
       if (!option[SWITCH] && !option[DUP])
         index = keyword->_hash_value;
 
-      printf ("%s    char %s_str%d[sizeof(",
+      printf_count ("%s    char %s_str%d[sizeof(",
               indent, option.get_stringpool_name (), index);
       output_string (keyword->_allchars, keyword->_allchars_length);
-      printf (")];\n");
+      printf_count (")];\n");
 
       /* Deal with duplicates specially.  */
       if (keyword->_duplicate_link) // implies option[DUP]
@@ -1123,18 +1214,18 @@ Output::output_string_pool () const
                            keyword->_allchars_length) == 0))
             {
               index++;
-              printf ("%s    char %s_str%d[sizeof(",
+              printf_count ("%s    char %s_str%d[sizeof(",
                       indent, option.get_stringpool_name (), index);
               output_string (links->_allchars, links->_allchars_length);
-              printf (")];\n");
+              printf_count (")];\n");
             }
 
       index++;
     }
-  printf ("%s  };\n",
+  printf_count ("%s  };\n",
           indent);
 
-  printf ("%sstatic %sstruct %s_t %s_contents =\n"
+  printf_count ("%sstatic %sstruct %s_t %s_contents =\n"
           "%s  {\n",
           indent, const_readonly_array, option.get_stringpool_name (),
           option.get_stringpool_name (), indent);
@@ -1149,12 +1240,12 @@ Output::output_string_pool () const
         continue;
 
       if (index > 0)
-        printf (",\n");
+        printf_count (",\n");
 
       if (!option[SWITCH] && !option[DUP])
         index = keyword->_hash_value;
 
-      printf ("%s    ",
+      printf_count ("%s    ",
               indent);
       output_string (keyword->_allchars, keyword->_allchars_length);
 
@@ -1166,8 +1257,8 @@ Output::output_string_pool () const
                            keyword->_allchars_length) == 0))
             {
               index++;
-              printf (",\n");
-              printf ("%s    ",
+              printf_count (",\n");
+              printf_count ("%s    ",
                       indent);
               output_string (links->_allchars, links->_allchars_length);
             }
@@ -1175,14 +1266,14 @@ Output::output_string_pool () const
       index++;
     }
   if (index > 0)
-    printf ("\n");
-  printf ("%s  };\n",
+    printf_count ("\n");
+  printf_count ("%s  };\n",
           indent);
-  printf ("%s#define %s ((%schar *) &%s_contents)\n",
+  printf_count ("%s#define %s ((%schar *) &%s_contents)\n",
           indent, option.get_stringpool_name (), const_always,
           option.get_stringpool_name ());
   if (option[GLOBAL])
-    printf ("\n");
+    printf_count ("\n");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1192,9 +1283,9 @@ output_keyword_entry (KeywordExt *temp, int stringpool_index, const char *indent
 {
   if (option[TYPE])
     output_line_directive (temp->_lineno);
-  printf ("%s    ", indent);
+  printf_count ("%s    ", indent);
   if (option[TYPE])
-    printf ("{");
+    printf_count ("{");
   if (option[SHAREDLIB])
     /* How to determine a certain offset in stringpool at compile time?
        - The standard way would be to use the 'offsetof' macro.  But it is only
@@ -1209,7 +1300,7 @@ output_keyword_entry (KeywordExt *temp, int stringpool_index, const char *indent
        - The types 'long' and 'unsigned long' do work as well, but on 64-bit
          native Windows platforms, they don't have the same size as pointers
          and therefore generate warnings.  */
-    printf ("(int)(size_t)&((struct %s_t *)0)->%s_str%d",
+    printf_count ("(int)(size_t)&((struct %s_t *)0)->%s_str%d",
             option.get_stringpool_name (), option.get_stringpool_name (),
             stringpool_index);
   else
@@ -1217,17 +1308,18 @@ output_keyword_entry (KeywordExt *temp, int stringpool_index, const char *indent
   if (option[TYPE])
     {
       if (strlen (temp->_rest) > 0)
-        printf (",%s", temp->_rest);
-      printf ("}");
+        printf_count (",%s", temp->_rest);
+      printf_count ("}");
+      output_generated_line_directive ();
     }
   if (option[DEBUG])
     {
-      printf (" /* ");
+      printf_count (" /* ");
       if (is_duplicate)
-        printf ("hash value duplicate, ");
+        printf_count ("hash value duplicate, ");
       else
-        printf ("hash value = %d, ", temp->_hash_value);
-      printf ("index = %d */", temp->_final_index);
+        printf_count ("hash value = %d, ", temp->_hash_value);
+      printf_count ("index = %d */", temp->_final_index);
     }
 }
 
@@ -1252,27 +1344,27 @@ output_keyword_blank_entries (int count, const char *indent)
       if ((column % columns) == 0)
         {
           if (i > 0)
-            printf (",\n");
-          printf ("%s    ", indent);
+            printf_count (",\n");
+          printf_count ("%s    ", indent);
         }
       else
         {
           if (i > 0)
-            printf (", ");
+            printf_count (", ");
         }
       if (option[TYPE])
-        printf ("{");
+        printf_count ("{");
       if (option[SHAREDLIB])
-        printf ("-1");
+        printf_count ("-1");
       else
         {
           if (option[NULLSTRINGS])
-            printf ("(char*)0");
+            printf_count ("(char*)0");
           else
-            printf ("\"\"");
+            printf_count ("\"\"");
         }
       if (option[TYPE])
-        printf ("%s}", option.get_initializer_suffix());
+        printf_count ("%s}", option.get_initializer_suffix());
       column++;
     }
 }
@@ -1294,16 +1386,16 @@ Output::output_keyword_table () const
     "(defined __GNUC__ && __GNUC__ + (__GNUC_MINOR__ >= 6) > 4) || (defined __clang__ && __clang_major__ >= 3)";
   if (silence_missing_initializer_warning)
     {
-      printf ("#if %s\n", preprocessor_condition);
-      printf ("#pragma GCC diagnostic push\n");
-      printf ("#pragma GCC diagnostic ignored \"-Wmissing-field-initializers\"\n");
-      printf ("#endif\n");
+      printf_count ("#if %s\n", preprocessor_condition);
+      printf_count ("#pragma GCC diagnostic push\n");
+      printf_count ("#pragma GCC diagnostic ignored \"-Wmissing-field-initializers\"\n");
+      printf_count ("#endif\n");
     }
 
-  printf ("%sstatic ",
+  printf_count ("%sstatic ",
           indent);
   output_const_type (const_readonly_array, _wordlist_eltype);
-  printf ("%s[] =\n"
+  printf_count ("%s[] =\n"
           "%s  {\n",
           option.get_wordlist_name (),
           indent);
@@ -1321,13 +1413,13 @@ Output::output_keyword_table () const
         continue;
 
       if (index > 0)
-        printf (",\n");
+        printf_count (",\n");
 
       if (index < keyword->_hash_value && !option[SWITCH] && !option[DUP])
         {
           /* Some blank entries.  */
           output_keyword_blank_entries (keyword->_hash_value - index, indent);
-          printf (",\n");
+          printf_count (",\n");
           index = keyword->_hash_value;
         }
 
@@ -1340,7 +1432,7 @@ Output::output_keyword_table () const
         for (KeywordExt *links = keyword->_duplicate_link; links; links = links->_duplicate_link)
           {
             links->_final_index = ++index;
-            printf (",\n");
+            printf_count (",\n");
             int stringpool_index =
               (links->_allchars_length == keyword->_allchars_length
                && memcmp (links->_allchars, keyword->_allchars,
@@ -1353,17 +1445,17 @@ Output::output_keyword_table () const
       index++;
     }
   if (index > 0)
-    printf ("\n");
+    printf_count ("\n");
 
-  printf ("%s  };\n", indent);
+  printf_count ("%s  };\n", indent);
 
   if (silence_missing_initializer_warning)
     {
-      printf ("#if %s\n", preprocessor_condition);
-      printf ("#pragma GCC diagnostic pop\n");
-      printf ("#endif\n");
+      printf_count ("#if %s\n", preprocessor_condition);
+      printf_count ("#pragma GCC diagnostic pop\n");
+      printf_count ("#endif\n");
     }
-  printf ("\n");
+  printf_count ("\n");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1475,7 +1567,7 @@ Output::output_lookup_array () const
         }
 
       const char *indent = option[GLOBAL] ? "" : "  ";
-      printf ("%sstatic %s%s lookup[] =\n"
+      printf_count ("%sstatic %s%s lookup[] =\n"
               "%s  {",
               indent, const_readonly_array, smallest_integral_type (min, max),
               indent);
@@ -1504,12 +1596,12 @@ Output::output_lookup_array () const
       for (int i = 0; i < lookup_array_size; i++)
         {
           if (i > 0)
-            printf (",");
+            printf_count (",");
           if ((column++ % columns) == 0)
-            printf("\n%s   ", indent);
-          printf ("%*d", field_width, lookup_array[i]);
+            printf_count("\n%s   ", indent);
+          printf_count ("%*d", field_width, lookup_array[i]);
         }
-      printf ("\n%s  };\n\n", indent);
+      printf_count ("\n%s  };\n\n", indent);
 
       delete[] duplicates;
       delete[] lookup_array;
@@ -1565,22 +1657,22 @@ static KeywordExt_List *
 output_switch_case (KeywordExt_List *list, int indent, int *jumps_away)
 {
   if (option[DEBUG])
-    printf ("%*s/* hash value = %4d, keyword = \"%.*s\" */\n",
+    printf_count ("%*s/* hash value = %4d, keyword = \"%.*s\" */\n",
             indent, "", list->first()->_hash_value, list->first()->_allchars_length, list->first()->_allchars);
 
   if (option[DUP] && list->first()->_duplicate_link)
     {
       if (option[LENTABLE])
-        printf ("%*slengthptr = &%s[%d];\n",
+        printf_count ("%*slengthptr = &%s[%d];\n",
                 indent, "", option.get_lengthtable_name (), list->first()->_final_index);
-      printf ("%*swordptr = &%s[%d];\n",
+      printf_count ("%*swordptr = &%s[%d];\n",
               indent, "", option.get_wordlist_name (), list->first()->_final_index);
 
       int count = 0;
       for (KeywordExt *links = list->first(); links; links = links->_duplicate_link)
         count++;
 
-      printf ("%*swordendptr = wordptr + %d;\n"
+      printf_count ("%*swordendptr = wordptr + %d;\n"
               "%*sgoto multicompare;\n",
               indent, "", count,
               indent, "");
@@ -1590,25 +1682,25 @@ output_switch_case (KeywordExt_List *list, int indent, int *jumps_away)
     {
       if (option[LENTABLE])
         {
-          printf ("%*sif (len == %d)\n"
+          printf_count ("%*sif (len == %d)\n"
                   "%*s  {\n",
                   indent, "", list->first()->_allchars_length,
                   indent, "");
           indent += 4;
         }
-      printf ("%*sresword = ",
+      printf_count ("%*sresword = ",
               indent, "");
       if (option[TYPE])
-        printf ("&%s[%d]", option.get_wordlist_name (), list->first()->_final_index);
+        printf_count ("&%s[%d]", option.get_wordlist_name (), list->first()->_final_index);
       else
         output_string (list->first()->_allchars, list->first()->_allchars_length);
-      printf (";\n");
-      printf ("%*sgoto compare;\n",
+      printf_count (";\n");
+      printf_count ("%*sgoto compare;\n",
               indent, "");
       if (option[LENTABLE])
         {
           indent -= 4;
-          printf ("%*s  }\n",
+          printf_count ("%*s  }\n",
                   indent, "");
         }
       else
@@ -1625,7 +1717,7 @@ static void
 output_switches (KeywordExt_List *list, int num_switches, int size, int min_hash_value, int max_hash_value, int indent)
 {
   if (option[DEBUG])
-    printf ("%*s/* know %d <= key <= %d, contains %d cases */\n",
+    printf_count ("%*s/* know %d <= key <= %d, contains %d cases */\n",
             indent, "", min_hash_value, max_hash_value, size);
 
   if (num_switches > 1)
@@ -1639,21 +1731,21 @@ output_switches (KeywordExt_List *list, int num_switches, int size, int min_hash
       for (int count = size1; count > 0; count--)
         temp = temp->rest();
 
-      printf ("%*sif (key < %d)\n"
+      printf_count ("%*sif (key < %d)\n"
               "%*s  {\n",
               indent, "", temp->first()->_hash_value,
               indent, "");
 
       output_switches (list, part1, size1, min_hash_value, temp->first()->_hash_value-1, indent+4);
 
-      printf ("%*s  }\n"
+      printf_count ("%*s  }\n"
               "%*selse\n"
               "%*s  {\n",
               indent, "", indent, "", indent, "");
 
       output_switches (temp, part2, size2, temp->first()->_hash_value, max_hash_value, indent+4);
 
-      printf ("%*s  }\n",
+      printf_count ("%*s  }\n",
               indent, "");
     }
   else
@@ -1669,34 +1761,34 @@ output_switches (KeywordExt_List *list, int num_switches, int size, int min_hash
             output_switch_case (list, indent, &jumps_away);
           else
             {
-              printf ("%*sif (key == %d)\n"
+              printf_count ("%*sif (key == %d)\n"
                       "%*s  {\n",
                       indent, "", lowest_case_value,
                       indent, "");
               output_switch_case (list, indent+4, &jumps_away);
-              printf ("%*s  }\n",
+              printf_count ("%*s  }\n",
                       indent, "");
             }
         }
       else
         {
           if (lowest_case_value == 0)
-            printf ("%*sswitch (key)\n", indent, "");
+            printf_count ("%*sswitch (key)\n", indent, "");
           else
-            printf ("%*sswitch (key - %d)\n", indent, "", lowest_case_value);
-          printf ("%*s  {\n",
+            printf_count ("%*sswitch (key - %d)\n", indent, "", lowest_case_value);
+          printf_count ("%*s  {\n",
                   indent, "");
           for (; size > 0; size--)
             {
               int jumps_away = 0;
-              printf ("%*s    case %d:\n",
+              printf_count ("%*s    case %d:\n",
                       indent, "", list->first()->_hash_value - lowest_case_value);
               list = output_switch_case (list, indent+6, &jumps_away);
               if (!jumps_away)
-                printf ("%*s      break;\n",
+                printf_count ("%*s      break;\n",
                         indent, "");
             }
-          printf ("%*s  }\n",
+          printf_count ("%*s  }\n",
                   indent, "");
         }
     }
@@ -1718,7 +1810,7 @@ Output::output_lookup_function_body (const Output_Compare& comparison) const
   else
     sprintf (null_expression, "(%s) 0", _return_type);
 
-  printf ("  if (len <= %sMAX_WORD_LENGTH && len >= %sMIN_WORD_LENGTH)\n"
+  printf_count ("  if (len <= %sMAX_WORD_LENGTH && len >= %sMIN_WORD_LENGTH)\n"
           "    {\n"
           "      %sunsigned int key = %s (str, len);\n\n",
           option.get_constants_prefix (), option.get_constants_prefix (),
@@ -1731,223 +1823,223 @@ Output::output_lookup_function_body (const Output_Compare& comparison) const
       if (num_switches > switch_size)
         num_switches = switch_size;
 
-      printf ("      if (key <= %sMAX_HASH_VALUE",
+      printf_count ("      if (key <= %sMAX_HASH_VALUE",
               option.get_constants_prefix ());
       if (_min_hash_value > 0)
-        printf (" && key >= %sMIN_HASH_VALUE",
+        printf_count (" && key >= %sMIN_HASH_VALUE",
                 option.get_constants_prefix ());
-      printf (")\n"
+      printf_count (")\n"
               "        {\n");
       if (option[DUP] && _total_duplicates > 0)
         {
           if (option[LENTABLE])
-            printf ("          %s%s%s *lengthptr;\n",
+            printf_count ("          %s%s%s *lengthptr;\n",
                     register_scs, const_always,
                     smallest_integral_type (_max_key_len));
-          printf ("          %s",
+          printf_count ("          %s",
                   register_scs);
           output_const_type (const_readonly_array, _wordlist_eltype);
-          printf ("*wordptr;\n");
-          printf ("          %s",
+          printf_count ("*wordptr;\n");
+          printf_count ("          %s",
                   register_scs);
           output_const_type (const_readonly_array, _wordlist_eltype);
-          printf ("*wordendptr;\n");
+          printf_count ("*wordendptr;\n");
         }
       if (option[TYPE])
         {
-          printf ("          %s",
+          printf_count ("          %s",
                   register_scs);
           output_const_type (const_readonly_array, _struct_tag);
-          printf ("*resword;\n\n");
+          printf_count ("*resword;\n\n");
         }
       else
-        printf ("          %s%sresword;\n\n",
+        printf_count ("          %s%sresword;\n\n",
                 register_scs, _struct_tag);
 
       output_switches (_head, num_switches, switch_size, _min_hash_value, _max_hash_value, 10);
 
-      printf ("          return %s;\n",
+      printf_count ("          return %s;\n",
               null_expression);
       if (option[DUP] && _total_duplicates > 0)
         {
           int indent = 8;
-          printf ("%*smulticompare:\n"
+          printf_count ("%*smulticompare:\n"
                   "%*s  while (wordptr < wordendptr)\n"
                   "%*s    {\n",
                   indent, "", indent, "", indent, "");
           if (option[LENTABLE])
             {
-              printf ("%*s      if (len == *lengthptr)\n"
+              printf_count ("%*s      if (len == *lengthptr)\n"
                       "%*s        {\n",
                       indent, "", indent, "");
               indent += 4;
             }
-          printf ("%*s      %s%schar *s = ",
+          printf_count ("%*s      %s%schar *s = ",
                   indent, "", register_scs, const_always);
           if (option[TYPE])
-            printf ("wordptr->%s", option.get_slot_name ());
+            printf_count ("wordptr->%s", option.get_slot_name ());
           else
-            printf ("*wordptr");
+            printf_count ("*wordptr");
           if (option[SHAREDLIB])
-            printf (" + %s",
+            printf_count (" + %s",
                     option.get_stringpool_name ());
-          printf (";\n\n"
+          printf_count (";\n\n"
                   "%*s      if (",
                   indent, "");
           comparison.output_comparison (Output_Expr1 ("str"), Output_Expr1 ("s"));
-          printf (")\n"
+          printf_count (")\n"
                   "%*s        return %s;\n",
                   indent, "",
                   option[TYPE] ? "wordptr" : "s");
           if (option[LENTABLE])
             {
               indent -= 4;
-              printf ("%*s        }\n",
+              printf_count ("%*s        }\n",
                       indent, "");
             }
           if (option[LENTABLE])
-            printf ("%*s      lengthptr++;\n",
+            printf_count ("%*s      lengthptr++;\n",
                     indent, "");
-          printf ("%*s      wordptr++;\n"
+          printf_count ("%*s      wordptr++;\n"
                   "%*s    }\n"
                   "%*s  return %s;\n",
                   indent, "", indent, "", indent, "", null_expression);
         }
-      printf ("        compare:\n");
+      printf_count ("        compare:\n");
       if (option[TYPE])
         {
-          printf ("          {\n"
+          printf_count ("          {\n"
                   "            %s%schar *s = resword->%s",
                   register_scs, const_always, option.get_slot_name ());
           if (option[SHAREDLIB])
-            printf (" + %s",
+            printf_count (" + %s",
                     option.get_stringpool_name ());
-          printf (";\n\n"
+          printf_count (";\n\n"
                   "            if (");
           comparison.output_comparison (Output_Expr1 ("str"), Output_Expr1 ("s"));
-          printf (")\n"
+          printf_count (")\n"
                   "              return resword;\n"
                   "          }\n");
         }
       else
         {
-          printf ("          if (");
+          printf_count ("          if (");
           comparison.output_comparison (Output_Expr1 ("str"), Output_Expr1 ("resword"));
-          printf (")\n"
+          printf_count (")\n"
                   "            return resword;\n");
         }
-      printf ("        }\n");
+      printf_count ("        }\n");
     }
   else
     {
-      printf ("      if (key <= %sMAX_HASH_VALUE)\n",
+      printf_count ("      if (key <= %sMAX_HASH_VALUE)\n",
               option.get_constants_prefix ());
 
       if (option[DUP])
         {
           int indent = 8;
-          printf ("%*s{\n"
+          printf_count ("%*s{\n"
                   "%*s  %sint index = lookup[key];\n\n"
                   "%*s  if (index >= 0)\n",
                   indent, "", indent, "", register_scs, indent, "");
           if (option[LENTABLE])
             {
-              printf ("%*s    {\n"
+              printf_count ("%*s    {\n"
                       "%*s      if (len == %s[index])\n",
                       indent, "", indent, "", option.get_lengthtable_name ());
               indent += 4;
             }
-          printf ("%*s    {\n"
+          printf_count ("%*s    {\n"
                   "%*s      %s%schar *s = %s[index]",
                   indent, "",
                   indent, "", register_scs, const_always,
                   option.get_wordlist_name ());
           if (option[TYPE])
-            printf (".%s", option.get_slot_name ());
+            printf_count (".%s", option.get_slot_name ());
           if (option[SHAREDLIB])
-            printf (" + %s",
+            printf_count (" + %s",
                     option.get_stringpool_name ());
-          printf (";\n\n"
+          printf_count (";\n\n"
                   "%*s      if (",
                   indent, "");
           comparison.output_comparison (Output_Expr1 ("str"), Output_Expr1 ("s"));
-          printf (")\n"
+          printf_count (")\n"
                   "%*s        return ",
                   indent, "");
           if (option[TYPE])
-            printf ("&%s[index]", option.get_wordlist_name ());
+            printf_count ("&%s[index]", option.get_wordlist_name ());
           else
-            printf ("s");
-          printf (";\n"
+            printf_count ("s");
+          printf_count (";\n"
                   "%*s    }\n",
                   indent, "");
           if (option[LENTABLE])
             {
               indent -= 4;
-              printf ("%*s    }\n", indent, "");
+              printf_count ("%*s    }\n", indent, "");
             }
           if (_total_duplicates > 0)
             {
-              printf ("%*s  else if (index < -%sTOTAL_KEYWORDS)\n"
+              printf_count ("%*s  else if (index < -%sTOTAL_KEYWORDS)\n"
                       "%*s    {\n"
                       "%*s      %sint offset = - 1 - %sTOTAL_KEYWORDS - index;\n",
                       indent, "", option.get_constants_prefix (), indent, "",
                       indent, "", register_scs, option.get_constants_prefix ());
               if (option[LENTABLE])
-                printf ("%*s      %s%s%s *lengthptr = &%s[%sTOTAL_KEYWORDS + lookup[offset]];\n",
+                printf_count ("%*s      %s%s%s *lengthptr = &%s[%sTOTAL_KEYWORDS + lookup[offset]];\n",
                         indent, "", register_scs, const_always, smallest_integral_type (_max_key_len),
                         option.get_lengthtable_name (), option.get_constants_prefix ());
-              printf ("%*s      %s",
+              printf_count ("%*s      %s",
                       indent, "", register_scs);
               output_const_type (const_readonly_array, _wordlist_eltype);
-              printf ("*wordptr = &%s[%sTOTAL_KEYWORDS + lookup[offset]];\n",
+              printf_count ("*wordptr = &%s[%sTOTAL_KEYWORDS + lookup[offset]];\n",
                       option.get_wordlist_name (), option.get_constants_prefix ());
-              printf ("%*s      %s",
+              printf_count ("%*s      %s",
                       indent, "", register_scs);
               output_const_type (const_readonly_array, _wordlist_eltype);
-              printf ("*wordendptr = wordptr + -lookup[offset + 1];\n\n");
-              printf ("%*s      while (wordptr < wordendptr)\n"
+              printf_count ("*wordendptr = wordptr + -lookup[offset + 1];\n\n");
+              printf_count ("%*s      while (wordptr < wordendptr)\n"
                       "%*s        {\n",
                       indent, "", indent, "");
               if (option[LENTABLE])
                 {
-                  printf ("%*s          if (len == *lengthptr)\n"
+                  printf_count ("%*s          if (len == *lengthptr)\n"
                           "%*s            {\n",
                           indent, "", indent, "");
                   indent += 4;
                 }
-              printf ("%*s          %s%schar *s = ",
+              printf_count ("%*s          %s%schar *s = ",
                       indent, "", register_scs, const_always);
               if (option[TYPE])
-                printf ("wordptr->%s", option.get_slot_name ());
+                printf_count ("wordptr->%s", option.get_slot_name ());
               else
-                printf ("*wordptr");
+                printf_count ("*wordptr");
               if (option[SHAREDLIB])
-                printf (" + %s",
+                printf_count (" + %s",
                         option.get_stringpool_name ());
-              printf (";\n\n"
+              printf_count (";\n\n"
                       "%*s          if (",
                       indent, "");
               comparison.output_comparison (Output_Expr1 ("str"), Output_Expr1 ("s"));
-              printf (")\n"
+              printf_count (")\n"
                       "%*s            return %s;\n",
                       indent, "",
                       option[TYPE] ? "wordptr" : "s");
               if (option[LENTABLE])
                 {
                   indent -= 4;
-                  printf ("%*s            }\n",
+                  printf_count ("%*s            }\n",
                           indent, "");
                 }
               if (option[LENTABLE])
-                printf ("%*s          lengthptr++;\n",
+                printf_count ("%*s          lengthptr++;\n",
                         indent, "");
-              printf ("%*s          wordptr++;\n"
+              printf_count ("%*s          wordptr++;\n"
                       "%*s        }\n"
                       "%*s    }\n",
                       indent, "", indent, "", indent, "");
             }
-          printf ("%*s}\n",
+          printf_count ("%*s}\n",
                   indent, "");
         }
       else
@@ -1955,7 +2047,7 @@ Output::output_lookup_function_body (const Output_Compare& comparison) const
           int indent = 8;
           if (option[LENTABLE])
             {
-              printf ("%*sif (len == %s[key])\n",
+              printf_count ("%*sif (len == %s[key])\n",
                       indent, "", option.get_lengthtable_name ());
               indent += 2;
             }
@@ -1964,20 +2056,20 @@ Output::output_lookup_function_body (const Output_Compare& comparison) const
             {
               if (!option[LENTABLE])
                 {
-                  printf ("%*s{\n"
+                  printf_count ("%*s{\n"
                           "%*s  %sint o = %s[key]",
                           indent, "",
                           indent, "", register_scs,
                           option.get_wordlist_name ());
                   if (option[TYPE])
-                    printf (".%s", option.get_slot_name ());
-                  printf (";\n"
+                    printf_count (".%s", option.get_slot_name ());
+                  printf_count (";\n"
                           "%*s  if (o >= 0)\n"
                           "%*s    {\n",
                           indent, "",
                           indent, "");
                   indent += 4;
-                  printf ("%*s  %s%schar *s = o",
+                  printf_count ("%*s  %s%schar *s = o",
                           indent, "", register_scs, const_always);
                 }
               else
@@ -1985,53 +2077,53 @@ Output::output_lookup_function_body (const Output_Compare& comparison) const
                   /* No need for the (o >= 0) test, because the
                      (len == lengthtable[key]) test already guarantees that
                      key points to nonempty table entry.  */
-                  printf ("%*s{\n"
+                  printf_count ("%*s{\n"
                           "%*s  %s%schar *s = %s[key]",
                           indent, "",
                           indent, "", register_scs, const_always,
                           option.get_wordlist_name ());
                   if (option[TYPE])
-                    printf (".%s", option.get_slot_name ());
+                    printf_count (".%s", option.get_slot_name ());
                 }
-              printf (" + %s",
+              printf_count (" + %s",
                       option.get_stringpool_name ());
             }
           else
             {
-              printf ("%*s{\n"
+              printf_count ("%*s{\n"
                       "%*s  %s%schar *s = %s[key]",
                       indent, "",
                       indent, "", register_scs, const_always,
                       option.get_wordlist_name ());
               if (option[TYPE])
-                printf (".%s", option.get_slot_name ());
+                printf_count (".%s", option.get_slot_name ());
             }
 
-          printf (";\n\n"
+          printf_count (";\n\n"
                   "%*s  if (",
                   indent, "");
           if (!option[SHAREDLIB] && option[NULLSTRINGS])
-            printf ("s && ");
+            printf_count ("s && ");
           comparison.output_comparison (Output_Expr1 ("str"), Output_Expr1 ("s"));
-          printf (")\n"
+          printf_count (")\n"
                   "%*s    return ",
                   indent, "");
           if (option[TYPE])
-            printf ("&%s[key]", option.get_wordlist_name ());
+            printf_count ("&%s[key]", option.get_wordlist_name ());
           else
-            printf ("s");
-          printf (";\n");
+            printf_count ("s");
+          printf_count (";\n");
           if (option[SHAREDLIB] && !option[LENTABLE])
             {
               indent -= 4;
-              printf ("%*s    }\n",
+              printf_count ("%*s    }\n",
                       indent, "");
             }
-          printf ("%*s}\n",
+          printf_count ("%*s}\n",
                   indent, "");
         }
     }
-  printf ("    }\n"
+  printf_count ("    }\n"
           "  return %s;\n",
           null_expression);
 
@@ -2050,12 +2142,12 @@ Output::output_lookup_function () const
      because non-static inline functions must not reference static functions or
      variables, see ISO C 99 section 6.7.4.(3).  */
 
-  printf ("%s%s\n",
+  printf_count ("%s%s\n",
           const_for_struct, _return_type);
   if (option[CPLUSPLUS])
-    printf ("%s::", option.get_class_name ());
-  printf ("%s ", option.get_function_name ());
-  printf (option[KRC] ?
+    printf_count ("%s::", option.get_class_name ());
+  printf_count ("%s ", option.get_function_name ());
+  printf_count (option[KRC] ?
                  "(str, len)\n"
             "     %schar *str;\n"
             "     %ssize_t len;\n" :
@@ -2069,7 +2161,7 @@ Output::output_lookup_function () const
           register_scs, register_scs);
 
   /* Output the function's body.  */
-  printf ("{\n");
+  printf_count ("{\n");
 
   if (option[ENUM] && !option[GLOBAL])
     {
@@ -2092,7 +2184,7 @@ Output::output_lookup_function () const
         output_lookup_function_body (Output_Compare_Strcmp ());
     }
 
-  printf ("}\n");
+  printf_count ("}\n");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2104,6 +2196,9 @@ void
 Output::output ()
 {
   compute_min_max ();
+
+  output_lineno = 1; // Reset output line count
+  output_generated_line_directive ();
 
   if (option[CPLUSPLUS])
     /* The 'register' keyword is removed from C++17.
@@ -2133,32 +2228,32 @@ Output::output ()
 
   _wordlist_eltype = (option[SHAREDLIB] && !option[TYPE] ? "int" : _struct_tag);
 
-  printf ("/* ");
+  printf_count ("/* ");
   if (option[KRC])
-    printf ("KR-C");
+    printf_count ("KR-C");
   else if (option[C])
-    printf ("C");
+    printf_count ("C");
   else if (option[ANSIC])
-    printf ("ANSI-C");
+    printf_count ("ANSI-C");
   else if (option[CPLUSPLUS])
-    printf ("C++");
-  printf (" code produced by gperf version %s */\n", version_string);
+    printf_count ("C++");
+  printf_count (" code produced by gperf version %s */\n", version_string);
   option.print_options ();
-  printf ("\n");
+  printf_count ("\n");
   if (!option[POSITIONS])
     {
-      printf ("/* Computed positions: -k'");
+      printf_count ("/* Computed positions: -k'");
       _key_positions.print();
-      printf ("' */\n");
+      printf_count ("' */\n");
     }
-  printf ("\n");
+  printf_count ("\n");
 
   if (_charset_dependent
       && (_key_positions.get_size() > 0 || option[UPPERLOWER]))
     {
       /* The generated tables assume that the execution character set is
          based on ISO-646, not EBCDIC.  */
-      printf ("#if !((' ' == 32) && ('!' == 33) && ('\"' == 34) && ('#' == 35) \\\n"
+      printf_count ("#if !((' ' == 32) && ('!' == 33) && ('\"' == 34) && ('#' == 35) \\\n"
               "      && ('%%' == 37) && ('&' == 38) && ('\\'' == 39) && ('(' == 40) \\\n"
               "      && (')' == 41) && ('*' == 42) && ('+' == 43) && (',' == 44) \\\n"
               "      && ('-' == 45) && ('.' == 46) && ('/' == 47) && ('0' == 48) \\\n"
@@ -2182,25 +2277,27 @@ Output::output ()
               "      && ('w' == 119) && ('x' == 120) && ('y' == 121) && ('z' == 122) \\\n"
               "      && ('{' == 123) && ('|' == 124) && ('}' == 125) && ('~' == 126))\n"
               "/* The character set is not based on ISO-646.  */\n");
-      printf ("%s \"gperf generated tables don't work with this execution character set. Please report a bug to <bug-gperf@gnu.org>.\"\n", option[KRC] || option[C] ? "error" : "#error");
-      printf ("#endif\n\n");
+      printf_count ("%s \"gperf generated tables don't work with this execution character set. Please report a bug to <bug-gperf@gnu.org>.\"\n", option[KRC] || option[C] ? "error" : "#error");
+      printf_count ("#endif\n\n");
     }
 
   if (_verbatim_declarations < _verbatim_declarations_end)
     {
       output_line_directive (_verbatim_declarations_lineno);
-      fwrite (_verbatim_declarations, 1,
+      fwrite_count (_verbatim_declarations, 1,
               _verbatim_declarations_end - _verbatim_declarations, stdout);
+      output_generated_line_directive ();  /* Reset #line to our generated code */
     }
 
   if (option[TYPE] && !option[NOTYPE]) /* Output type declaration now, reference it later on.... */
     {
       output_line_directive (_struct_decl_lineno);
-      printf ("%s\n", _struct_decl);
+      printf_count ("%s\n", _struct_decl);
+      output_generated_line_directive ();  /* Reset #line to our generated code */
     }
 
   if (option[INCLUDE])
-    printf ("#include <string.h>\n"); /* Declare strlen(), strcmp(), strncmp(). */
+    printf_count ("#include <string.h>\n"); /* Declare strlen(), strcmp(), strncmp(). */
 
   if (!option[ENUM])
     {
@@ -2213,7 +2310,7 @@ Output::output ()
       output_constants (style);
     }
 
-  printf ("/* maximum key range = %d, duplicates = %d */\n\n",
+  printf_count ("/* maximum key range = %d, duplicates = %d */\n\n",
           _max_hash_value - _min_hash_value + 1, _total_duplicates);
 
   if (option[UPPERLOWER])
@@ -2234,7 +2331,7 @@ Output::output ()
     }
 
   if (option[CPLUSPLUS])
-    printf ("class %s\n"
+    printf_count ("class %s\n"
             "{\n"
             "private:\n"
             "  static inline unsigned int %s (const char *str, size_t len);\n"
@@ -2254,10 +2351,12 @@ Output::output ()
 
   output_lookup_function ();
 
+
   if (_verbatim_code < _verbatim_code_end)
     {
       output_line_directive (_verbatim_code_lineno);
-      fwrite (_verbatim_code, 1, _verbatim_code_end - _verbatim_code, stdout);
+      fwrite_count (_verbatim_code, 1, _verbatim_code_end - _verbatim_code, stdout);
+      output_generated_line_directive ();  /* Reset #line to our generated code */
     }
 
   fflush (stdout);
