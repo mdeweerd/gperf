@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  # Run this using `docker compose run --rm gperf-base` on the CLI
+  # To run & rebase: `docker compose run --base --rm gperf-base` on the CLI
+  gperf-base:
+    build:
+      context: .
+      args: [--rm]
+      dockerfile: Dockerfile
+    container_name: gperf-build
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: /bin/bash
+
+  # Run this using `docker compose run --rm gperf-build` on the CLI
+  # To run & rebuild: `docker compose run --build --rm gperf-build` on the CLI
+  gperf-build:
+    extends: gperf-base
+    command: bash -c "./autopull.sh && ./autogen.sh && ./configure && ./make && ./make check && ./make install"
+
+  # Run this using `docker compose run --rm gperf-build` on the CLI
+  # To run & rebuild: `docker compose run --build --rm gperf-build` on the CLI
+  gperf-rebuild:
+    extends: gperf-base
+    command: bash -c "./make && ./make check && ./make install"
